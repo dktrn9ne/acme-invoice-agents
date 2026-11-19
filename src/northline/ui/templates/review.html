@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Queue{% endblock %}
+{% block body %}
+<section class="lede">
+  <p class="kicker">Human review</p>
+  <h1>These are waiting on a <em>person.</em></h1>
+  <p class="sub">The desk would not pay them on its own. Releasing one sends it through the same mock payment. Rejecting writes the reason to the audit log.</p>
+</section>
+<hr class="rule">
+{% if error %}<p class="banner">{{ error }}</p>{% endif %}
+{% if items %}
+  {% for item in items %}
+  <article class="hold">
+    <div>
+      <p class="sum">{{ item.amount | money }}</p>
+      <p class="meta">{{ item.currency or "USD" }}</p>
+    </div>
+    <div>
+      <h2 style="font-size:28px"><a href="/runs/{{ item.run_id }}">{{ item.invoice_number or item.source_name }}</a></h2>
+      <p class="meta">{{ item.vendor or "No vendor" }} · {{ item.source_name }}</p>
+      {% for flag in item.reasons %}
+        {% if flag.severity == "review" %}
+        <p class="why">{{ flag.message }}</p>
+        {% endif %}
+      {% endfor %}
+    </div>
+    <form class="actions" method="post" action="/review/{{ item.run_id }}">
+      <textarea name="note" placeholder="Why you are releasing or refusing this"></textarea>
+      <button class="solid" name="action" value="approve" type="submit">Release payment</button>
+      <button class="ghost" name="action" value="reject" type="submit">Reject</button>
+    </form>
+  </article>
+  {% endfor %}
+{% else %}
+  <p class="empty">The queue is empty. Soft flags — currency, a price spike, a revision, a total just under $10,000 — land here.</p>
+{% endif %}
+{% endblock %}
