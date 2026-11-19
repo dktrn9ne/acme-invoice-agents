@@ -1,0 +1,175 @@
+{
+  "name": "northline-golden",
+  "policy": {
+    "high_value_gt": "10000.00",
+    "price_variance_gt": "0.05",
+    "threshold_window_under_10000": "500.00",
+    "arithmetic_tolerance": "0.02",
+    "stock_rule": "aggregate duplicate SKUs, then compare to on-hand; zero on hand is zero_stock, not stock_exceeded",
+    "clean_original": "INV-1004 stays payable. The revision is held so both cannot be paid.",
+    "twins": "Same invoice in two formats is flagged cross_format_duplicate. Each file is scored on a fresh ledger, so both are still payable. A shared ledger pays the number once.",
+    "decisions": ["paid", "rejected", "needs_review"]
+  },
+  "invoices": [
+    {
+      "file": "invoice_1001.txt",
+      "invoice_number": "INV-1001",
+      "vendor": "Widgets Inc.",
+      "total": "5000.00",
+      "decision": "paid",
+      "flags": []
+    },
+    {
+      "file": "invoice_1002.txt",
+      "invoice_number": "INV-1002",
+      "vendor": "Gadgets Co.",
+      "total": "15000.00",
+      "decision": "rejected",
+      "flags": ["due_same_day", "high_value", "stock_exceeded"]
+    },
+    {
+      "file": "invoice_1003.txt",
+      "invoice_number": "INV-1003",
+      "vendor": "Fraudster LLC",
+      "total": "100000.00",
+      "decision": "rejected",
+      "flags": ["due_date_invalid", "high_value", "unapproved_vendor", "urgency_language", "wire_request", "zero_stock"]
+    },
+    {
+      "file": "invoice_1004.json",
+      "invoice_number": "INV-1004",
+      "vendor": "Precision Parts Ltd.",
+      "total": "1890.00",
+      "decision": "paid",
+      "flags": []
+    },
+    {
+      "file": "invoice_1004_revised.json",
+      "invoice_number": "INV-1004",
+      "vendor": "Precision Parts Ltd.",
+      "total": "5940.00",
+      "decision": "needs_review",
+      "flags": ["duplicate_invoice", "revision"]
+    },
+    {
+      "file": "invoice_1005.json",
+      "invoice_number": "INV-1005",
+      "vendor": "Global Supply Chain Partners",
+      "total": "15225.00",
+      "decision": "rejected",
+      "flags": ["high_value", "stock_exceeded", "suspicious_address", "unapproved_vendor"]
+    },
+    {
+      "file": "invoice_1006.csv",
+      "invoice_number": "INV-1006",
+      "vendor": "Acme Industrial Supplies",
+      "total": "2750.00",
+      "decision": "paid",
+      "flags": []
+    },
+    {
+      "file": "invoice_1007.csv",
+      "invoice_number": "INV-1007",
+      "vendor": "MegaWidgets Corp",
+      "total": "15525.00",
+      "decision": "rejected",
+      "flags": ["arithmetic_mismatch", "high_value", "stock_exceeded"]
+    },
+    {
+      "file": "invoice_1008.txt",
+      "invoice_number": "INV-1008",
+      "vendor": "NoProd Industries",
+      "total": "9900.00",
+      "decision": "rejected",
+      "flags": ["threshold_avoidance", "unapproved_vendor", "unknown_item"]
+    },
+    {
+      "file": "invoice_1009.json",
+      "invoice_number": "INV-1009",
+      "vendor": "",
+      "total": "-250.00",
+      "decision": "rejected",
+      "flags": ["arithmetic_mismatch", "missing_due_date", "missing_vendor", "negative_quantity"]
+    },
+    {
+      "file": "invoice_1010.txt",
+      "invoice_number": "INV-1010",
+      "vendor": "Consolidated Materials Group",
+      "total": "7185.00",
+      "decision": "needs_review",
+      "flags": ["duplicate_sku", "price_variance", "shipping_charge"]
+    },
+    {
+      "file": "invoice_1011.pdf",
+      "invoice_number": "INV-1011",
+      "vendor": "Summit Manufacturing Co.",
+      "total": "3000.00",
+      "decision": "paid",
+      "flags": ["cross_format_duplicate"]
+    },
+    {
+      "file": "invoice_1011.txt",
+      "invoice_number": "INV-1011",
+      "vendor": "Summit Manufacturing Co.",
+      "total": "3000.00",
+      "decision": "paid",
+      "flags": ["cross_format_duplicate"]
+    },
+    {
+      "file": "invoice_1012.pdf",
+      "invoice_number": "INV-1012",
+      "vendor": "QuickShip Distributers",
+      "total": "9975.00",
+      "decision": "needs_review",
+      "flags": ["cross_format_duplicate", "ocr_anomaly", "threshold_avoidance", "vendor_renamed"]
+    },
+    {
+      "file": "invoice_1012.txt",
+      "invoice_number": "INV-1012",
+      "vendor": "QuickShip Distributers",
+      "total": "9975.00",
+      "decision": "needs_review",
+      "flags": ["cross_format_duplicate", "ocr_anomaly", "threshold_avoidance", "vendor_renamed"]
+    },
+    {
+      "file": "invoice_1013.json",
+      "invoice_number": "INV-1013",
+      "vendor": "Atlas Industrial Supply",
+      "total": "22562.80",
+      "decision": "rejected",
+      "flags": ["arithmetic_mismatch", "cross_format_duplicate", "duplicate_sku", "high_value", "stock_exceeded"]
+    },
+    {
+      "file": "invoice_1013.pdf",
+      "invoice_number": "INV-1013",
+      "vendor": "Atlas Industrial Supply",
+      "total": "22562.80",
+      "decision": "rejected",
+      "flags": ["arithmetic_mismatch", "cross_format_duplicate", "duplicate_sku", "high_value", "stock_exceeded"]
+    },
+    {
+      "file": "invoice_1014.xml",
+      "invoice_number": "INV-1014",
+      "vendor": "TechParts International",
+      "total": "4125.00",
+      "decision": "needs_review",
+      "flags": ["foreign_currency"]
+    },
+    {
+      "file": "invoice_1015.csv",
+      "invoice_number": "INV-1015",
+      "vendor": "Reliable Components Inc.",
+      "total": "6500.00",
+      "decision": "paid",
+      "flags": []
+    },
+    {
+      "file": "invoice_1016.json",
+      "invoice_number": "INV-1016",
+      "vendor": "Widgets Inc.",
+      "total": "3233.00",
+      "decision": "rejected",
+      "flags": ["unknown_item"]
+    }
+  ]
+}
