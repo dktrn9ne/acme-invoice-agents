@@ -12,10 +12,13 @@ build/
 .env
 .env.local
 
-data/*.db
-data/*.sqlite
-data/*.sqlite3
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-journal
 logs/
+.coverage
+htmlcov/
 var/
 uploads/
 

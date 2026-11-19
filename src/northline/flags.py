@@ -36,6 +36,39 @@ SEVERITY = {
 
 DECISION_RANK = {"paid": 0, "needs_review": 1, "rejected": 2}
 
+LABELS = {
+    "stock_exceeded": "Stock exceeded",
+    "zero_stock": "Zero stock",
+    "unknown_item": "Unknown item",
+    "negative_quantity": "Negative quantity",
+    "zero_quantity": "Zero quantity",
+    "arithmetic_mismatch": "Arithmetic mismatch",
+    "missing_vendor": "Missing vendor",
+    "missing_due_date": "Missing due date",
+    "due_date_invalid": "Invalid due date",
+    "suspicious_address": "Suspicious address",
+    "duplicate_payment": "Duplicate payment",
+    "price_variance": "Price variance",
+    "threshold_avoidance": "Just under $10,000",
+    "foreign_currency": "Foreign currency",
+    "unapproved_vendor": "Unapproved vendor",
+    "duplicate_invoice": "Duplicate invoice",
+    "revision": "Revision",
+    "vendor_renamed": "Vendor renamed",
+    "urgency_language": "Urgency language",
+    "wire_request": "Wire request",
+    "high_value": "High value",
+    "due_same_day": "Due same day",
+    "cross_format_duplicate": "Cross-format duplicate",
+    "ocr_anomaly": "OCR anomaly",
+    "shipping_charge": "Shipping charge",
+    "duplicate_sku": "Duplicate SKU",
+}
+
+
+def flag_label(code: str) -> str:
+    return LABELS.get(code, code.replace("_", " "))
+
 
 @dataclass
 class Flag:

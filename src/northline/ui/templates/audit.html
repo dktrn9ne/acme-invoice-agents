@@ -3,7 +3,7 @@
 {% block body %}
 <p class="kicker">Ledger</p>
 <h1>Who decided, and <em>why</em><span class="dot">.</span></h1>
-<p class="dek">Every agent writes a line. The payment row is the only place money is recorded as moved.</p>
+<p class="dek">Every agent writes a line. Times here are this machine's local zone. The JSONL file keeps UTC. The payment row is the only place money is recorded as moved.</p>
 <nav class="filters" aria-label="Filter by agent">
   <a href="/audit" {% if not agent %}aria-current="true"{% endif %}>All</a>
   {% for name in agents %}
@@ -18,7 +18,7 @@
   <tbody>
     {% for event in events %}
     <tr>
-      <td class="num" style="text-align:left">{{ event.created_at[11:16] }}</td>
+      <td class="num" style="text-align:left">{{ event.created_at | localtime }}</td>
       <td><span class="tag info">{{ event.agent }}</span></td>
       <td>{% if event.run_id %}<a href="/runs/{{ event.run_id }}">{{ event.invoice_number or "—" }}</a>{% else %}—{% endif %}</td>
       <td>{{ event.message }}</td>

@@ -5,7 +5,7 @@
   <div>
     <p class="kicker">{{ run.source_name }} · {{ run.mode }}</p>
     <h1>{{ invoice.invoice_number or "Unread" }}<span class="dot">.</span></h1>
-    <p class="meta">{{ invoice.vendor_name or "No vendor" }} · due {{ invoice.due_date or invoice.due_date_raw or "—" }} · ran {{ run.created_at[:16] | replace("T", " ") }} UTC</p>
+    <p class="meta">{{ invoice.vendor_name or "No vendor" }} · due {{ invoice.due_date or invoice.due_date_raw or "—" }} · ran {{ run.created_at | localtime }}</p>
     <p style="margin-top:14px"><span class="tag {{ run.decision }}">{{ run.decision | decision }}</span></p>
   </div>
   <p class="amount">{{ invoice.total | money }} <small>{{ invoice.currency or "" }}</small></p>
@@ -19,7 +19,13 @@
     <div>
       <p class="who">{{ event.agent }}</p>
       <strong>{{ event.stage | stage }}</strong>
-      <p>{{ event.message }}</p>
+      <p>{{ event.display or event.message }}</p>
+      {% if event.display and event.display != event.message %}
+      <details class="raw">
+        <summary>Show raw log</summary>
+        <p>{{ event.message }}</p>
+      </details>
+      {% endif %}
       {% if event.payload and event.payload.disagreement %}
       <table>
         <thead><tr><th>Field</th><th>Rules</th><th>Grok</th></tr></thead>
@@ -62,7 +68,7 @@
     {% if flags %}
       {% for flag in flags %}
       <article class="flag">
-        <p class="tag {{ flag.severity }}">{{ flag.severity }} · {{ flag.code }}</p>
+        <p class="tag {{ flag.severity }}">{{ flag.code | flag_label }}</p>
         <p>{{ flag.message }}</p>
       </article>
       {% endfor %}

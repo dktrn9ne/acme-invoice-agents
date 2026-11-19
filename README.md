@@ -1,15 +1,64 @@
 # Northline
 
-**Payables control for Acme Corp.** A multi-agent desk that reads an invoice, checks it against the item master, and only then moves money.
+Acme's payables desk: it reads an invoice, checks it against the item master, and only then moves money. LangGraph orchestrates. Code does the math and the payment. Grok writes the note when a key is set.
 
-[![Python](https://img.shields.io/badge/python-3.11+-1c1915?style=flat-square)](https://www.python.org/)
-[![LangGraph](https://img.shields.io/badge/orchestration-LangGraph-c45c26?style=flat-square)](https://github.com/langchain-ai/langgraph)
-[![Grok](https://img.shields.io/badge/reasoner-Grok-1e6b45?style=flat-square)](https://docs.x.ai/)
-[![Offline eval](https://img.shields.io/badge/offline%20eval-20%2F20-1e6b45?style=flat-square)](#evaluation)
+[![tests](https://github.com/dktrn9ne/acme-invoice-agents/actions/workflows/tests.yml/badge.svg)](https://github.com/dktrn9ne/acme-invoice-agents/actions/workflows/tests.yml)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-161513?style=flat-square)](https://www.python.org/)
+[![Offline eval](https://img.shields.io/badge/offline%20eval-20%2F20-1e6b45?style=flat-square)](#results)
+[![Live eval](https://img.shields.io/badge/live%20grok--4.3-20%2F20-1e6b45?style=flat-square)](#results)
 
-Built by Maurice Thomas ([dktrn9ne](https://github.com/dktrn9ne)) for the Galatiq forward-deployed engineer assessment.
+Maurice Thomas ([dktrn9ne](https://github.com/dktrn9ne)), for the Galatiq forward-deployed engineer assessment.
 
-![The Northline desk after the sample corpus](docs/desk.png)
+![The Northline desk after one pass of the sample corpus](docs/desk.png)
+
+## Results
+
+| | Decisions | Flag F1 | Extraction | When |
+| --- | ---: | ---: | --- | --- |
+| Offline, no key | **20/20** | **100%** | number, vendor, total | this repo, `make eval` |
+| Live, grok-4.3, ChatXAI | **20/20** | **100%** | ok | 18 Nov 2026, 7:43–7:50 PM CT, commit `553c2d0`. Mean 20.91s, max 54.33s (`invoice_1015.csv`). 57,632 in / 27,000 out across 56 calls |
+
+The $10,000 wording matcher (`$10k`, `10K`, "ten thousand") and the "formerly …" vendor normalization landed **after** that live measurement. They do not change those 20 decisions. They change how a later run would narrate INV-1013, and whether INV-1012's parenthetical vendor is logged as a disagreement. An earlier canary the same day, before the arithmetic grounding, was 19/20. It is superseded.
+
+## Quickstart
+
+Python **3.12** (3.11 or newer). Debian/Ubuntu may need `sudo apt install python3.12-venv`.
+
+```bash
+make setup
+make eval
+make ui
+```
+
+The case command, using the venv `make setup` just created:
+
+```bash
+.venv/bin/python main.py --invoice_path=data/invoices/invoice_1001.txt
+```
+
+`python` on its own is not the venv, so that line fails with `ModuleNotFoundError` until you activate (`. .venv/bin/activate`) or call `.venv/bin/python`. With no `XAI_API_KEY` the command is the offline desk. JSON lines go to stderr. A summary goes to stdout. The desk is at http://127.0.0.1:8000 and has no login. Do not expose the port.
+
+No `make` on the machine:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -U pip
+.venv/bin/pip install -r requirements.txt
+PYTHONPATH=src .venv/bin/python -m northline.seed --db data/northline.db
+PYTHONPATH=src .venv/bin/python -m pytest
+PYTHONPATH=src .venv/bin/python -m northline.eval --offline
+PYTHONPATH=src .venv/bin/python main.py --invoice_path=data/invoices/invoice_1001.txt
+PYTHONPATH=src .venv/bin/python -m uvicorn northline.ui.app:app --host 127.0.0.1 --port 8000
+```
+
+## Known limitations
+
+- Stock is checked per invoice and not reserved. Two invoices that are each under the on-hand quantity can still oversell.
+- When Grok and the rules reader disagree, the rules reader wins and the payment can still go through. The field diff is in the audit. It does not stop the money.
+- Catalog prices and the approved-vendor list are inferred from the sample documents, not from an ERP extract.
+- The desk has no authentication. It is local only.
+
+The rest of this file is the depth: the traps, the graph, and what the live run actually did.
 
 ## The problem
 
@@ -74,7 +123,7 @@ make eval       # offline golden set. No key. Must be 20/20.
 make eval-live  # Grok canary. Exits 0 when the run finishes.
 make demo       # run all 20 documents into the local ledger
 make ui         # http://127.0.0.1:8000
-pytest          # unit tests, the critique loop, and the golden set
+make test       # pytest, including the golden set
 ```
 
 The same commands without `make` (the live box did not have it):
@@ -92,17 +141,17 @@ PYTHONPATH=src .venv/bin/python main.py --all --offline
 PYTHONPATH=src .venv/bin/python -m uvicorn northline.ui.app:app --host 127.0.0.1 --port 8000
 ```
 
-One document, exactly as the case specifies:
+One document, exactly as the case specifies. Use the venv interpreter. A bare `python` is not that interpreter:
 
 ```bash
-python main.py --invoice_path=data/invoices/invoice_1001.txt
+.venv/bin/python main.py --invoice_path=data/invoices/invoice_1001.txt
 ```
 
-With no `XAI_API_KEY`, that command is the offline desk. JSON lines go to stderr. A readable summary goes to stdout.
+With no `XAI_API_KEY`, that command is the offline desk. JSON lines go to stderr. A summary goes to stdout.
 
 ```bash
-python main.py --all --offline
-python main.py --invoice_dir=data/invoices
+.venv/bin/python main.py --all --offline
+.venv/bin/python main.py --invoice_dir=data/invoices
 ```
 
 Live Grok, after copying `.env.example` to `.env`:
@@ -266,11 +315,9 @@ data/PROVENANCE.md      source and date
 
 The fixtures and `data/generate_pdfs.py` are copied from [galatiq-ai/galatiq-case-invoices](https://github.com/galatiq-ai/galatiq-case-invoices). They are not my work. See `data/PROVENANCE.md`.
 
-## Known weaknesses
+## What the live run actually did
 
-An interviewer should ask about these. They are real.
-
-- Which loops ran on the 18 Nov 7:43 PM CT live run (`553c2d0`, grok-4.3), and which are only covered by tests:
+Loops on the 18 Nov 7:43 PM CT run (`553c2d0`, grok-4.3), and where each one is proven if it did not fire there:
 
   | Loop | That live run | Where it is proven |
   | --- | --- | --- |

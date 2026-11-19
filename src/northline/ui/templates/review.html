@@ -31,7 +31,7 @@
       <td>
         {% for flag in item.reasons %}
           {% if flag.severity == "review" %}
-          <p class="tag review">{{ flag.code }}</p>
+          <p class="tag review">{{ flag.code | flag_label }}</p>
           <p class="why">{{ flag.message }}</p>
           {% endif %}
         {% endfor %}
