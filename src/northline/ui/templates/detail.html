@@ -20,10 +20,38 @@
     <div>
       <strong>{{ event.stage | stage }}</strong>
       <p>{{ event.message }}</p>
+      {% if event.payload and event.payload.disagreement %}
+      <table>
+        <thead><tr><th>Field</th><th>Rules</th><th>Grok</th></tr></thead>
+        <tbody>
+          {% for row in event.payload.disagreement %}
+          <tr><td>{{ row.field }}</td><td>{{ row.rules or "—" }}</td><td>{{ row.grok or "—" }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
     </div>
   </li>
   {% endfor %}
 </ol>
+{% if disagreement %}
+<section class="card">
+  <h2>Extraction disagreement</h2>
+  <p class="hint">Grok and the rules reader differed. The money path kept the rules read. The same diff is in the audit payload.</p>
+  <table>
+    <thead><tr><th>Field</th><th>Rules</th><th>Grok</th></tr></thead>
+    <tbody>
+      {% for row in disagreement %}
+      <tr><td>{{ row.field }}</td><td>{{ row.rules or "—" }}</td><td>{{ row.grok or "—" }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% if llm_calls %}
+<p class="hint">Model calls: {{ llm_calls|length }}. Latency {{ latency_ms }} ms.
+  Tokens in {{ input_tokens if input_tokens is not none else "—" }} / out {{ output_tokens if output_tokens is not none else "—" }}.</p>
+{% endif %}
 
 <div class="split">
   <section>

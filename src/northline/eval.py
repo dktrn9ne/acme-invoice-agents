@@ -50,7 +50,27 @@ def score_file(expected: dict, result: dict) -> dict:
         "vendor": invoice.get("vendor_name"),
         "expected_vendor": expected["vendor"],
         "vendor_ok": (invoice.get("vendor_name") or "") == (expected["vendor"] or ""),
+        "latency_s": (result.get("latency_ms") or 0) / 1000,
+        "input_tokens": _sum_tokens(result.get("llm_calls") or [], "input_tokens"),
+        "output_tokens": _sum_tokens(result.get("llm_calls") or [], "output_tokens"),
     }
+
+
+def _sum_tokens(calls: list[dict], key: str) -> int | None:
+    values = [call.get(key) for call in calls if call.get(key) is not None]
+    if not values:
+        return None
+    return int(sum(values))
+
+
+def decision_exit(summary: dict, *, live: bool, min_accuracy: float | None) -> int:
+    """Offline must be perfect. Live exits 0 after a completed run unless --min-accuracy is set."""
+    if min_accuracy is not None:
+        return 0 if summary["decision_accuracy"] + 1e-12 >= min_accuracy else 1
+    if live:
+        return 0
+    perfect = summary["decision_accuracy"] == 1.0 and summary["flag_f1"] == 1.0 and summary["extraction_ok"]
+    return 0 if perfect else 1
 
 
 def aggregate(rows: list[dict]) -> dict:
@@ -108,13 +128,15 @@ def run_eval(expectations: dict, *, live: bool = False) -> tuple[list[dict], dic
     return rows, aggregate(rows)
 
 
-def render(rows: list[dict], summary: dict, mode: str) -> None:
+def render(rows: list[dict], summary: dict, mode: str, *, min_accuracy: float | None, exit_code: int) -> None:
     console = Console()
     table = Table(title=f"Northline eval · {mode}", header_style="bold")
     table.add_column("Invoice")
     table.add_column("Decision")
     table.add_column("Expected")
     table.add_column("Match")
+    table.add_column("Latency", justify="right")
+    table.add_column("Tokens", justify="right")
     table.add_column("Flag errors")
     for row in rows:
         problems = []
@@ -126,14 +148,20 @@ def render(rows: list[dict], summary: dict, mode: str) -> None:
             problems.append(f"total {row['total']}!={row['expected_total']}")
         if not row["vendor_ok"]:
             problems.append("vendor")
+        tokens = "—"
+        if row.get("input_tokens") is not None or row.get("output_tokens") is not None:
+            tokens = f"{row.get('input_tokens') or 0}/{row.get('output_tokens') or 0}"
         table.add_row(
             row["file"],
             row["decision"] or "—",
             row["expected_decision"],
             "yes" if row["decision_ok"] and row["flags_ok"] else "no",
+            f"{row.get('latency_s', 0):.2f}s",
+            tokens,
             "; ".join(problems) or "—",
         )
     console.print(table)
+    latency = _latency_line(rows)
     console.print(
         f"decisions {summary['decisions_correct']}/{summary['documents']} "
         f"({summary['decision_accuracy']:.0%})   "
@@ -142,29 +170,63 @@ def render(rows: list[dict], summary: dict, mode: str) -> None:
         f"f1 {summary['flag_f1']:.0%}   "
         f"extraction {'ok' if summary['extraction_ok'] else 'MISMATCH'}"
     )
+    console.print(latency)
+    if mode == "live":
+        if min_accuracy is None:
+            console.print(
+                "Live canary finished. Exit 0 because no --min-accuracy was set. "
+                "Pass --min-accuracy 1 to fail anything short of a perfect decision score."
+            )
+        elif exit_code == 0:
+            console.print(f"Live canary met --min-accuracy {min_accuracy:.0%}. Exit 0.")
+        else:
+            console.print(
+                f"Live canary is below --min-accuracy {min_accuracy:.0%} "
+                f"({summary['decision_accuracy']:.0%}). Exit 1."
+            )
+
+
+def _latency_line(rows: list[dict]) -> str:
+    if not rows:
+        return "no invoices"
+    slowest = max(rows, key=lambda row: row.get("latency_s") or 0)
+    mean = sum(row.get("latency_s") or 0 for row in rows) / len(rows)
+    incoming = [row["input_tokens"] for row in rows if row.get("input_tokens") is not None]
+    outgoing = [row["output_tokens"] for row in rows if row.get("output_tokens") is not None]
+    if incoming or outgoing:
+        tokens = f"tokens in {sum(incoming)} out {sum(outgoing)}"
+    else:
+        tokens = "tokens unavailable (no usage metadata on this run)"
+    return (
+        f"mean {mean:.2f}s/invoice  max {slowest.get('latency_s', 0):.2f}s "
+        f"({slowest['file']})  {tokens}"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Score Northline against the golden invoice set.")
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--offline", action="store_true")
+    parser.add_argument(
+        "--min-accuracy",
+        type=float,
+        default=None,
+        help="Fail (exit 1) when decision accuracy is below this fraction, e.g. 1 or 0.95. "
+        "Live runs exit 0 after a completed canary when this is omitted.",
+    )
     args = parser.parse_args(argv)
     live = bool(args.live)
+    if args.min_accuracy is not None and not 0 <= args.min_accuracy <= 1:
+        print("error: --min-accuracy must be between 0 and 1", file=sys.stderr)
+        return 2
     try:
         rows, summary = run_eval(load_expectations(), live=live)
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2 if "XAI_API_KEY" in str(exc) else 1
-    render(rows, summary, "live" if live else "offline")
-    if live:
-        # Live is a canary. Completing the set is success; the table is the result.
-        return 0
-    perfect = (
-        summary["decision_accuracy"] == 1.0
-        and summary["flag_f1"] == 1.0
-        and summary["extraction_ok"]
-    )
-    return 0 if perfect else 1
+    code = decision_exit(summary, live=live, min_accuracy=args.min_accuracy)
+    render(rows, summary, "live" if live else "offline", min_accuracy=args.min_accuracy, exit_code=code)
+    return code
 
 
 if __name__ == "__main__":

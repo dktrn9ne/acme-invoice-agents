@@ -93,16 +93,81 @@ def test_critic_loop_rejects_a_too_loose_draft(conn, settings):
 
 def test_clamp_blocks_a_critic_that_rubber_stamps_payment(conn, settings):
     path = INVOICES / "invoice_1003.txt"
+
+    def stamp(dossier):
+        return Narrative(decision="paid", rationale="Looks urgent, pay it.", concerns=[])
+
+    def accept(dossier, narrative):
+        return Critique(verdict="accept", notes="rubber stamp", recommended_decision="paid")
+
     reasoner = ScriptedReasoner(
         extracts=[lambda feedback, rules: rules],
-        narratives=[lambda dossier: Narrative(decision="paid", rationale="Looks urgent, pay it.", concerns=[])],
-        critiques=[lambda dossier, narrative: Critique(verdict="accept", notes="rubber stamp", recommended_decision="paid")],
+        narratives=[stamp, stamp],
+        critiques=[accept, accept],
     )
     result = run_path(path, settings, reasoner=reasoner, conn=conn, checkpointer=memory_saver())
     assert result["policy_decision"] == "rejected"
     assert result["draft_decision"] == "paid"
+    assert result["critique_attempts"] == 2
     assert result["final_decision"] == "rejected"
     assert result["payment"]["reason"] == "rejected"
+
+
+def test_false_arithmetic_claim_is_revised_back_to_paid(conn, settings):
+    """The live miss on INV-1004: the draft forgot the 8% tax and the model critic allowed it."""
+    path = INVOICES / "invoice_1004.json"
+    false_claim = "Invoice total 1890 does not match line items (3*250 + 2*500 = 1750)"
+
+    def wrong(dossier):
+        return Narrative(decision="needs_review", rationale=false_claim, concerns=["arithmetic"])
+
+    def corrected(dossier):
+        assert "line sum" in dossier["critique_notes"]
+        assert "140" in dossier["critique_notes"]
+        return Narrative(
+            decision="paid",
+            rationale="Stated total 1890.00 includes tax of 140.00 on a line sum of 1750.00. Pay.",
+            concerns=[],
+        )
+
+    def accept_stricter(dossier, narrative):
+        return Critique(
+            verdict="accept",
+            notes="Draft decision is stricter than policy but rules specify revise only for looser decisions.",
+            recommended_decision=narrative.decision,
+        )
+
+    reasoner = ScriptedReasoner(
+        extracts=[lambda feedback, rules: rules],
+        narratives=[wrong, corrected],
+        critiques=[accept_stricter, accept_stricter],
+    )
+    result = run_path(path, settings, reasoner=reasoner, conn=conn, checkpointer=memory_saver())
+    assert result["policy_decision"] == "paid"
+    assert result["critique_attempts"] == 2
+    assert any(event.get("payload", {}).get("verdict") == "revise" for event in result["events"])
+    assert result["final_decision"] == "paid"
+    assert result["payment"]["status"] == "success"
+
+
+def test_repeated_false_arithmetic_falls_back_to_policy(conn, settings):
+    path = INVOICES / "invoice_1004.json"
+    false_claim = "Invoice total 1890 does not match line items (3*250 + 2*500 = 1750)"
+
+    def wrong(dossier):
+        return Narrative(decision="needs_review", rationale=false_claim, concerns=[])
+
+    def accept_stricter(dossier, narrative):
+        return Critique(verdict="accept", notes="stricter is fine", recommended_decision="needs_review")
+
+    reasoner = ScriptedReasoner(
+        extracts=[lambda feedback, rules: rules],
+        narratives=[wrong, wrong],
+        critiques=[accept_stricter, accept_stricter],
+    )
+    result = run_path(path, settings, reasoner=reasoner, conn=conn, checkpointer=memory_saver())
+    assert result["final_decision"] == "paid"
+    assert any("Kept the policy decision" in event["message"] for event in result["events"])
 
 
 def test_high_value_clean_invoice_is_paid_and_the_threshold_is_named(conn, settings, tmp_path):

@@ -47,6 +47,7 @@ class Invoice(BaseModel):
     source_path: str = ""
     source_format: str = ""
     extraction_notes: list[str] = Field(default_factory=list)
+    extraction_diff: list[dict] = Field(default_factory=list)
 
     def state(self) -> dict:
         return self.model_dump(mode="json")

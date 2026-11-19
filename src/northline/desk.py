@@ -165,6 +165,8 @@ def _public_result(result: dict) -> dict:
         "events": result.get("events") or [],
         "invoice": {key: value for key, value in invoice.items() if key not in skip},
         "paused": bool(result.get("paused")),
+        "latency_ms": result.get("latency_ms"),
+        "llm_calls": result.get("llm_calls") or [],
     }
 
 

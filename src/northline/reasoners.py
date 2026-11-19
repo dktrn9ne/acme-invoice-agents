@@ -13,7 +13,8 @@ from typing import Protocol
 
 import httpx
 
-from northline.extract import draft_to_invoice, drafts_agree
+from northline.critique import enforce_critique
+from northline.extract import draft_to_invoice, extraction_diff
 from northline.flags import DECISION_RANK
 from northline.models import Critique, Invoice, InvoiceDraft, Narrative, schema_errors
 
@@ -28,14 +29,19 @@ quantity and unit_price are plain numbers. Shipping is a separate field, not a l
 
 NARRATE_SYSTEM = """You are the VP's desk reviewing a packet that deterministic controls already scored.
 You may keep the policy decision, or you may be stricter (hold or reject). You may not loosen a block into a payment.
+The arithmetic object is computed by code and is authoritative. Do not add the line items yourself and do not decide whether tax was applied.
+If arithmetic.total_matches is true, the stated total already includes tax and shipping. A line sum lower than the total is not an error.
+Do not recommend needs_review or rejected for arithmetic unless arithmetic.total_matches, arithmetic.tax_matches, or arithmetic.subtotal_matches_lines is false.
+Be stricter than policy only for a reason already listed in flags.
 Mention the $10,000 scrutiny line whenever the packet is flagged high_value.
 Write a short rationale a controller can read. decision must be one of paid, rejected, needs_review."""
 
 CRITIQUE_SYSTEM = """You are the critic sitting next to the VP's desk.
 If the draft decision is looser than the policy decision, verdict is revise.
+If the draft claims the total, the tax, or the line sum is wrong, and the arithmetic object says that figure matches, verdict is revise. A stricter decision is not acceptable when its rationale contradicts the arithmetic.
 If the invoice is high_value and the rationale never mentions the $10,000 line, verdict is revise.
 Otherwise verdict is accept.
-recommended_decision is the decision the desk should execute. Do not recommend a looser decision than policy."""
+recommended_decision is the policy decision when the draft's only objection is a false arithmetic claim. Do not recommend a looser decision than policy."""
 
 
 class Reasoner(Protocol):
@@ -71,30 +77,30 @@ class OfflineReasoner:
         else:
             parts.append("No control flags.")
         parts.append(dossier.get("policy_rationale") or "")
+        arithmetic = dossier.get("arithmetic") or {}
+        if arithmetic:
+            parts.append(
+                "Arithmetic (authoritative): "
+                f"line sum {arithmetic.get('line_sum')}, "
+                f"tax {arithmetic.get('stated_tax') or '0.00'}, "
+                f"expected total {arithmetic.get('expected_total')}, "
+                f"stated total {arithmetic.get('stated_total')}, "
+                f"total_matches {arithmetic.get('total_matches')}."
+            )
         notes = dossier.get("critique_notes") or ""
         if notes:
             parts.append(f"Revised after critique: {notes}")
         return Narrative(decision=decision, rationale=" ".join(part for part in parts if part), concerns=codes)
 
     def critique(self, dossier: dict, narrative: Narrative) -> Critique:
-        policy = dossier["policy_decision"]
-        if DECISION_RANK[narrative.decision] < DECISION_RANK[policy]:
-            return Critique(
-                verdict="revise",
-                notes="Draft is looser than the controls allow.",
-                recommended_decision=policy,
-            )
-        high = any(item["code"] == "high_value" for item in dossier.get("flags") or [])
-        if high and "10,000" not in narrative.rationale and "10000" not in narrative.rationale:
-            return Critique(
-                verdict="revise",
-                notes="High-value invoice and the draft never mentions the $10,000 threshold.",
+        return enforce_critique(
+            dossier,
+            narrative,
+            Critique(
+                verdict="accept",
+                notes="Draft matches the controls.",
                 recommended_decision=narrative.decision,
-            )
-        return Critique(
-            verdict="accept",
-            notes="Draft matches the controls.",
-            recommended_decision=narrative.decision,
+            ),
         )
 
 
@@ -137,6 +143,7 @@ class GrokReasoner:
         self.api_key = api_key
         self.timeout = timeout
         self._offline = OfflineReasoner()
+        self.llm_calls: list[dict] = []
 
     def extract(self, raw_text: str, source_format: str, feedback: list[str], rules: Invoice) -> Invoice:
         if source_format in {"json", "csv", "xml"}:
@@ -144,6 +151,7 @@ class GrokReasoner:
             return rules
         try:
             draft = self._structured(
+                "ingestion",
                 EXTRACT_SYSTEM,
                 _extract_user(raw_text, feedback),
                 InvoiceDraft,
@@ -156,15 +164,20 @@ class GrokReasoner:
         if schema_errors(parsed):
             parsed.extraction_notes.append("Grok draft failed schema checks.")
             return parsed
-        if drafts_agree(parsed, rules):
+        diff = extraction_diff(rules, parsed)
+        if not diff:
             rules.extraction_notes.append("Grok extraction agrees with the rules reader.")
             return rules
-        rules.extraction_notes.append("Grok disagreed with the rules reader. Money path kept the rules read.")
+        rules.extraction_diff = diff
+        fields = ", ".join(row["field"] for row in diff)
+        rules.extraction_notes.append(
+            f"Grok disagreed with the rules reader on {fields}. Money path kept the rules read."
+        )
         return rules
 
     def narrate(self, dossier: dict) -> Narrative:
         try:
-            narrative = self._structured(NARRATE_SYSTEM, json.dumps(dossier, default=str), Narrative)
+            narrative = self._structured("approval", NARRATE_SYSTEM, json.dumps(dossier, default=str), Narrative)
         except Exception as exc:
             log.warning(json.dumps({"agent": "approval", "message": "grok_narrate_failed", "error": exc.__class__.__name__}))
             narrative = self._offline.narrate(dossier)
@@ -177,7 +190,7 @@ class GrokReasoner:
     def critique(self, dossier: dict, narrative: Narrative) -> Critique:
         packet = {"dossier": dossier, "draft": narrative.model_dump()}
         try:
-            critique = self._structured(CRITIQUE_SYSTEM, json.dumps(packet, default=str), Critique)
+            critique = self._structured("critic", CRITIQUE_SYSTEM, json.dumps(packet, default=str), Critique)
         except Exception as exc:
             log.warning(json.dumps({"agent": "critic", "message": "grok_critique_failed", "error": exc.__class__.__name__}))
             critique = self._offline.critique(dossier, narrative)
@@ -189,12 +202,27 @@ class GrokReasoner:
             critique.recommended_decision = narrative.decision
         return critique
 
-    def _structured(self, system: str, user: str, schema):
+    def _structured(self, agent: str, system: str, user: str, schema):
+        started = time.perf_counter()
         try:
-            return self._via_langchain(system, user, schema)
+            parsed, usage = self._via_langchain(system, user, schema)
         except Exception as first:
             log.info(json.dumps({"agent": "grok", "message": "langchain_fallback", "error": first.__class__.__name__}))
-            return self._via_httpx(system, user, schema)
+            parsed, usage = self._via_httpx(system, user, schema)
+        self._record_usage(agent, started, usage)
+        return parsed
+
+    def _record_usage(self, agent: str, started: float, usage: dict) -> None:
+        call = {
+            "agent": agent,
+            "model": self.model,
+            "input_tokens": usage.get("input_tokens"),
+            "output_tokens": usage.get("output_tokens"),
+            "total_tokens": usage.get("total_tokens"),
+            "latency_ms": int((time.perf_counter() - started) * 1000),
+        }
+        self.llm_calls.append(call)
+        log.info(json.dumps({"message": "llm_usage", **call}))
 
     def _via_langchain(self, system: str, user: str, schema):
         from langchain_xai import ChatXAI
@@ -205,16 +233,24 @@ class GrokReasoner:
             request_timeout=self.timeout,
             max_retries=2,
         )
-        structured = llm.with_structured_output(schema)
+        structured = llm.with_structured_output(schema, include_raw=True)
         result = structured.invoke(
             [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ]
         )
-        if isinstance(result, schema):
-            return result
-        return schema.model_validate(result)
+        if isinstance(result, dict) and "parsed" in result:
+            if result.get("parsing_error"):
+                raise result["parsing_error"]
+            parsed = result.get("parsed")
+            usage = _usage_from_message(result.get("raw"))
+        else:
+            parsed = result
+            usage = {}
+        if isinstance(parsed, schema):
+            return parsed, usage
+        return schema.model_validate(parsed), usage
 
     def _via_httpx(self, system: str, user: str, schema):
         schema_text = json.dumps(schema.model_json_schema())
@@ -235,12 +271,38 @@ class GrokReasoner:
                     timeout=self.timeout,
                 )
                 response.raise_for_status()
-                content = response.json()["choices"][0]["message"]["content"]
-                return schema.model_validate(json.loads(_extract_json(content)))
+                body = response.json()
+                raw_usage = body.get("usage") or {}
+                usage = {
+                    "input_tokens": raw_usage.get("prompt_tokens"),
+                    "output_tokens": raw_usage.get("completion_tokens"),
+                    "total_tokens": raw_usage.get("total_tokens"),
+                }
+                content = body["choices"][0]["message"]["content"]
+                return schema.model_validate(json.loads(_extract_json(content))), usage
             except Exception as exc:
                 last = exc
                 time.sleep(1.2 * (attempt + 1))
         raise RuntimeError(f"Grok request failed: {last.__class__.__name__}") from last
+
+
+def _usage_from_message(message) -> dict:
+    if message is None:
+        return {}
+    meta = getattr(message, "usage_metadata", None) or {}
+    if not meta:
+        response_meta = getattr(message, "response_metadata", None) or {}
+        token_usage = response_meta.get("token_usage") or response_meta.get("usage") or {}
+        meta = {
+            "input_tokens": token_usage.get("prompt_tokens", token_usage.get("input_tokens")),
+            "output_tokens": token_usage.get("completion_tokens", token_usage.get("output_tokens")),
+            "total_tokens": token_usage.get("total_tokens"),
+        }
+    return {
+        "input_tokens": meta.get("input_tokens"),
+        "output_tokens": meta.get("output_tokens"),
+        "total_tokens": meta.get("total_tokens"),
+    }
 
 
 def _extract_user(raw_text: str, feedback: list[str]) -> str:

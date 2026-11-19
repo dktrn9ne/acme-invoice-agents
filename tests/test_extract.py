@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-
 from pathlib import Path
 
-from northline.extract import fix_ocr, parse_date, parse_document
+from northline.extract import extraction_diff, fix_ocr, parse_date, parse_document
 
 INVOICES = Path(__file__).resolve().parents[1] / "data" / "invoices"
 
@@ -68,6 +67,20 @@ def test_pdf_1013_keeps_vendor_and_due_date_on_shared_lines():
     assert invoice.due_date == date(2026, 3, 24)
     assert len(invoice.lines) == 8
     assert invoice.total == Decimal("22562.80")
+
+
+def test_extraction_diff_names_the_fields_that_moved():
+    rules = parse_document(INVOICES / "invoice_1004.json")
+    other = rules.model_copy(deep=True)
+    other.vendor_name = "Someone Else"
+    other.total = Decimal("1.00")
+    diff = extraction_diff(rules, other)
+    fields = {row["field"] for row in diff}
+    assert fields == {"vendor_name", "total"}
+    total = next(row for row in diff if row["field"] == "total")
+    assert total["rules"] == "1890.00"
+    assert total["grok"] == "1.00"
+    assert extraction_diff(rules, rules) == []
 
 
 def test_xml_currency_and_json_revision():

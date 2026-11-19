@@ -61,7 +61,7 @@ flowchart LR
 | --- | --- | --- |
 | Ingestion | Rules for JSON, CSV, and XML. Grok, when a key is set, for text and PDF. | A model may not "fix" a printed total so the fraud disappears. |
 | Validation | SQL and decimal arithmetic. | A model may not clear stock, price, or a sum. |
-| Approval | Policy first, then a VP note, then a critic. | The critic may hold or reject. It may not pay something the controls blocked. |
+| Approval | Policy first, then a VP note, then a critic. | The critic may hold or reject. It may not pay something the controls blocked, and it sends back a note that contradicts the computed arithmetic. |
 | Settlement | `mock_payment(vendor, amount)` or a queue row. | A second payment of the same invoice number. |
 
 Every step writes an audit line: who, which invoice, and why.
@@ -71,9 +71,25 @@ Every step writes an audit line: who, which invoice, and why.
 ```bash
 make setup      # venv, dependencies, item master at data/northline.db
 make eval       # offline golden set. No key. Must be 20/20.
+make eval-live  # Grok canary. Exits 0 when the run finishes.
 make demo       # run all 20 documents into the local ledger
 make ui         # http://127.0.0.1:8000
 pytest          # unit tests, the critique loop, and the golden set
+```
+
+The same commands without `make` (the live box did not have it):
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -U pip
+.venv/bin/pip install -r requirements.txt
+PYTHONPATH=src .venv/bin/python -m northline.seed --db data/northline.db
+PYTHONPATH=src .venv/bin/python -m pytest
+PYTHONPATH=src .venv/bin/python -m northline.eval --offline
+PYTHONPATH=src .venv/bin/python -m northline.eval --live
+PYTHONPATH=src .venv/bin/python -m northline.eval --live --min-accuracy 1
+PYTHONPATH=src .venv/bin/python main.py --all --offline
+PYTHONPATH=src .venv/bin/python -m uvicorn northline.ui.app:app --host 127.0.0.1 --port 8000
 ```
 
 One document, exactly as the case specifies:
@@ -93,9 +109,12 @@ Live Grok, after copying `.env.example` to `.env`:
 
 ```bash
 make eval-live
-# or
-python main.py --invoice_path=data/invoices/invoice_1012.txt --live
+# or, with no make:
+PYTHONPATH=src .venv/bin/python -m northline.eval --live
+PYTHONPATH=src .venv/bin/python main.py --invoice_path=data/invoices/invoice_1012.txt --live
 ```
+
+A finished live run exits 0 even when a decision misses. That is the canary: it reports the score instead of hiding a 95% run behind a red exit. Pass `--min-accuracy 1` (or `0.95`) when a threshold should fail the process. Offline `make eval` still fails unless the score is perfect.
 
 `GROK_MODEL` defaults to `grok-4.3`. Other ids that exist on the account: `grok-4.20-0309-reasoning`, `grok-4.20-0309-non-reasoning`. The key is read from the environment. It is never logged and never committed.
 
@@ -121,12 +140,16 @@ The visual system is a paper-and-ink payables desk: Fraunces for the headlines, 
 
 Measured offline on 19 Nov 2026. No API key. No network.
 
-| | Documents | Decision accuracy | Flag precision | Flag recall | Flag F1 | Extraction |
-| --- | ---: | ---: | ---: | ---: | ---: | --- |
-| **Offline** | 20 | **20/20** | **100%** | **100%** | **100%** | invoice number, vendor, and total match |
-| **Live Grok** | — | *not measured here* | — | — | — | Run `make eval-live` where `XAI_API_KEY` is set. This environment had no key. |
+| | Documents | Decision accuracy | Flag precision | Flag recall | Flag F1 | Extraction | Latency |
+| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| **Offline** | 20 | **20/20** | **100%** | **100%** | **100%** | invoice number, vendor, and total match | local, no model |
+| **Live, before the arithmetic fix** | 20 | **19/20** | **100%** | **100%** | **100%** | ok | mean 22.6s, max 65s on `invoice_1013.json` |
 
-Live mode calls Grok for text and PDF extraction and for the VP note and the critic. JSON, CSV, and XML stay on the rules reader, because asking a model to retype a structured file is how totals get invented. If Grok errors, times out, or returns a draft that fails the schema twice, the rules read is what gets paid against. If the two reads disagree, the rules read wins and the disagreement is written into the audit. That is a deliberate choice: the live canary should match this table unless the rules reader itself is wrong.
+The live row was measured on **18 Nov 2026**, model **grok-4.3**, `ChatXAI`, on the branch as it was before this fix. It has not been re-measured since. The one miss was `invoice_1004.json`: the VP draft said the $1,890 total did not match 3×250 + 2×500 = 1,750 and forgot the 8% tax ($140). The model critic accepted that, because the draft was stricter than policy and the old critic only revised looser drafts. The desk now treats the computed arithmetic as the only money facts, and the critic revises a rationale that contradicts them. Expect a re-run before treating 20/20 live as measured.
+
+On that same run, `invoice_1012.pdf` was a case where Grok's extraction disagreed with the rules reader. The `.txt` twin agreed. The decision and the flags still matched, because the rules read is what the controls use. The disagreement is now a field-level diff in the JSONL audit event and on the invoice page, not a one-line note.
+
+Live mode calls Grok for text and PDF extraction and for the VP note and the critic. JSON, CSV, and XML stay on the rules reader, because asking a model to retype a structured file is how totals get invented. If Grok errors, times out, or returns a draft that fails the schema twice, the rules read is what gets paid against. Each model call logs `input_tokens`, `output_tokens`, `total_tokens`, and its own latency. `eval` prints per-invoice latency and tokens.
 
 ### Per invoice
 
@@ -167,7 +190,7 @@ A **shared** ledger, which is what `make demo` and the UI use, is stricter in on
 
 **The model is a reader and a second opinion. It is not the ledger.**
 
-Stock, sums, currency, and the payment call are ordinary code. The reasoner (Grok live, a template offline, a script in tests) writes the VP note and the critique. `tighter()` throws away a draft that is looser than the policy. A test proves a rubber-stamp critic cannot pay INV-1003, and another proves a too-generous first draft is sent back and revised.
+Stock, sums, currency, and the payment call are ordinary code. The reasoner (Grok live, a template offline, a script in tests) writes the VP note. The note is handed an `arithmetic` object from the controls and told not to re-add the lines. `enforce_critique()` then does three things the model is not trusted to do alone: reject a draft looser than policy, send back a rationale that contradicts that arithmetic, and require the $10,000 line to be named on a high-value invoice. If the revised draft still contradicts the arithmetic, the policy decision is what executes. A scripted test replays the 18 Nov INV-1004 failure: a critic that would accept the stricter-but-wrong draft is overridden, the draft is revised, and the invoice is paid.
 
 **One graph, two reasoners.**
 
@@ -245,8 +268,17 @@ The fixtures and `data/generate_pdfs.py` are copied from [galatiq-ai/galatiq-cas
 
 An interviewer should ask about these. They are real.
 
-- The offline narrator agrees with the policy, so on the sample the critic accepts on the first pass. The revise loop is exercised by the scripted reasoner, not by the offline corpus. Live Grok might revise. The clamp still holds.
-- When Grok and the rules reader disagree, the rules reader wins. A better parser bug would be paid. The audit records the disagreement. It does not stop the payment.
+- Which loops actually ran on the 18 Nov live corpus, and which are only covered by tests:
+
+  | Loop | Live, 18 Nov, grok-4.3 | Where it is proven |
+  | --- | --- | --- |
+  | Extraction self-correction (schema retry) | Did not fire. Structured files skip Grok. Text and PDF parses were usable. | `test_extraction_self_corrects_on_schema_failure` |
+  | Critic revises a draft looser than policy | Did not fire. Grok did not try to pay a blocked invoice. | Scripted test, including a critic that rubber-stamps the loose draft |
+  | Critic revises a rationale that contradicts the computed arithmetic | This is the INV-1004 miss. The old critic accepted it. The new rule is not yet re-measured live. | Scripted test that replays the false "1890 vs 1750" claim |
+  | High-value note must name $10,000 | Not in the corpus. No clean invoice is over $10,000. | Unit test with a synthetic $12,500 order |
+
+  The offline narrator agrees with the policy, so on `make eval` the critic accepts on the first pass. That is expected. It is not evidence the revise loop ran.
+- When Grok and the rules reader disagree, the rules reader wins. A better parser bug would be paid. The audit event and the invoice page now carry a field-level diff (rules value vs Grok value). The diff does not, by itself, stop the payment.
 - Two invoices that are each under the on-hand quantity can still oversell, because stock is not reserved.
 - The approved-vendor list and the catalog prices are inferred from the clean documents. They are not a master-data extract.
 - "Just under $10,000" means within $500. A $9,400 invoice with no other signal is paid. That band is a choice.

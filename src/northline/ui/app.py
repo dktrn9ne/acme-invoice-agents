@@ -25,6 +25,13 @@ TEMPLATES = Jinja2Templates(directory=str(HERE / "templates"))
 READABLE = {".txt", ".pdf", ".json", ".csv", ".xml"}
 
 
+def _token_total(calls: list[dict], key: str) -> int | None:
+    values = [call.get(key) for call in calls if call.get(key) is not None]
+    if not values:
+        return None
+    return int(sum(values))
+
+
 def format_money(value: object) -> str:
     if value is None or value == "":
         return "—"
@@ -156,6 +163,11 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
                 payment=result.get("payment") or {},
                 rationale=result.get("draft_rationale") or result.get("policy_rationale") or "",
                 source=read_source(source_path),
+                disagreement=invoice.get("extraction_diff") or [],
+                llm_calls=result.get("llm_calls") or [],
+                latency_ms=result.get("latency_ms"),
+                input_tokens=_token_total(result.get("llm_calls") or [], "input_tokens"),
+                output_tokens=_token_total(result.get("llm_calls") or [], "output_tokens"),
             ),
         )
 

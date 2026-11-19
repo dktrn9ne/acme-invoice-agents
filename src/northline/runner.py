@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import uuid
 from pathlib import Path
 
@@ -70,7 +71,10 @@ def run_path(
         ledger = Ledger(conn)
         sink = JsonlLog(settings.log_path, run_id)
         sink.event("desk", f"Starting {path.name}", mode=initial["mode"], model=settings.model)
+        started = time.perf_counter()
         result = _invoke(reasoner, ledger, initial, settings, checkpointer, resume=None)
+        result["latency_ms"] = int((time.perf_counter() - started) * 1000)
+        result["llm_calls"] = list(getattr(reasoner, "llm_calls", []) or [])
         for event in result.get("events") or []:
             sink.write_graph_event(event)
         if result.get("paused"):

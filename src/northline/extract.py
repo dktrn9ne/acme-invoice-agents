@@ -614,6 +614,53 @@ def draft_to_invoice(draft: InvoiceDraft, raw_text: str, source_path: str, sourc
     )
 
 
+def _show(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value)
+
+
+def _line_signature(invoice: Invoice) -> str:
+    parts = []
+    for line in invoice.lines:
+        parts.append(
+            f"{line.sku or line.raw_name} x{_show(line.quantity)} @{_show(line.unit_price)}"
+        )
+    return "; ".join(parts)
+
+
+def extraction_diff(rules: Invoice, other: Invoice) -> list[dict]:
+    """Field-level difference between the rules read and a model read."""
+    rows: list[dict] = []
+    fields = (
+        "invoice_number",
+        "vendor_name",
+        "vendor_address",
+        "invoice_date",
+        "due_date",
+        "currency",
+        "subtotal",
+        "tax_rate",
+        "tax_amount",
+        "shipping",
+        "total",
+        "payment_terms",
+        "revision",
+    )
+    for field in fields:
+        left = _show(getattr(rules, field))
+        right = _show(getattr(other, field))
+        if left != right:
+            rows.append({"field": field, "rules": left, "grok": right})
+    left_lines = _line_signature(rules)
+    right_lines = _line_signature(other)
+    if left_lines != right_lines:
+        rows.append({"field": "lines", "rules": left_lines, "grok": right_lines})
+    return rows
+
+
 def drafts_agree(left: Invoice, right: Invoice) -> bool:
     if left.invoice_number != right.invoice_number:
         return False

@@ -12,7 +12,7 @@ from northline.corpus import corpus_flags
 from northline.extract import fix_ocr
 from northline.flags import Flag, fold, make_flag
 from northline.models import Invoice
-from northline.money import D, TOLERANCE, q
+from northline.money import D, TOLERANCE, money_str, q
 
 HIGH_VALUE = Decimal("10000")
 VARIANCE = Decimal("0.05")
@@ -280,30 +280,57 @@ def _line_flags(invoice: Invoice, ledger: Ledger) -> list[Flag]:
     return flags
 
 
-def _arithmetic_flags(invoice: Invoice) -> list[Flag]:
+def arithmetic_facts(invoice: Invoice) -> dict:
+    """Authoritative arithmetic. The VP may quote this. It may not recompute it."""
     computed = goods_subtotal(invoice)
-    problems: list[str] = []
-    if invoice.subtotal is not None and abs(invoice.subtotal - computed) > TOLERANCE:
-        problems.append(f"stated subtotal {invoice.subtotal} vs lines {computed}")
     basis = invoice.subtotal if invoice.subtotal is not None else computed
-    if invoice.tax_rate is not None and invoice.tax_amount is not None:
-        expected_tax = q(basis * invoice.tax_rate)
-        if abs(expected_tax - invoice.tax_amount) > TOLERANCE:
-            problems.append(
-                f"stated tax {invoice.tax_amount} vs {invoice.tax_rate} of {basis} = {expected_tax}"
-            )
+    stated_tax = invoice.tax_amount or Decimal("0")
+    shipping = invoice.shipping or Decimal("0")
+    expected_tax = q(basis * invoice.tax_rate) if invoice.tax_rate is not None else None
+    expected_total = q(basis + stated_tax + shipping)
+    subtotal_matches = invoice.subtotal is None or abs(invoice.subtotal - computed) <= TOLERANCE
+    tax_matches = True
+    if expected_tax is not None and invoice.tax_amount is not None:
+        tax_matches = abs(expected_tax - invoice.tax_amount) <= TOLERANCE
+    total_matches = invoice.total is None or abs(expected_total - invoice.total) <= TOLERANCE
+    return {
+        "line_sum": money_str(computed),
+        "stated_subtotal": money_str(invoice.subtotal),
+        "subtotal_matches_lines": subtotal_matches,
+        "tax_rate": None if invoice.tax_rate is None else format(invoice.tax_rate, "f"),
+        "stated_tax": money_str(invoice.tax_amount),
+        "expected_tax": money_str(expected_tax) if expected_tax is not None else None,
+        "tax_matches": tax_matches,
+        "shipping": money_str(invoice.shipping),
+        "stated_total": money_str(invoice.total),
+        "expected_total": money_str(expected_total),
+        "total_matches": total_matches,
+        "note": (
+            "Computed by code. Do not re-add the lines. "
+            "A line sum below the stated total is not a mismatch when tax and shipping close the gap."
+        ),
+    }
+
+
+def _arithmetic_flags(invoice: Invoice) -> list[Flag]:
+    facts = arithmetic_facts(invoice)
+    problems: list[str] = []
+    if facts["stated_subtotal"] is not None and not facts["subtotal_matches_lines"]:
+        problems.append(f"stated subtotal {facts['stated_subtotal']} vs lines {facts['line_sum']}")
+    if facts["expected_tax"] is not None and facts["stated_tax"] is not None and not facts["tax_matches"]:
+        problems.append(
+            f"stated tax {facts['stated_tax']} vs {facts['tax_rate']} of the subtotal = {facts['expected_tax']}"
+        )
     for line in invoice.lines:
         if line.kind != "goods" or line.line_total is None:
             continue
         expected = q(line.quantity * line.unit_price)
         if abs(expected - line.line_total) > TOLERANCE:
             problems.append(f"{line.raw_name} line total {line.line_total} vs {expected}")
-    if invoice.total is not None:
-        tax = invoice.tax_amount or Decimal("0")
-        shipping = invoice.shipping or Decimal("0")
-        expected_total = q(basis + tax + shipping)
-        if abs(expected_total - invoice.total) > TOLERANCE:
-            problems.append(f"stated total {invoice.total} vs subtotal + tax + shipping {expected_total}")
+    if facts["stated_total"] is not None and not facts["total_matches"]:
+        problems.append(
+            f"stated total {facts['stated_total']} vs subtotal + tax + shipping {facts['expected_total']}"
+        )
     if not problems:
         return []
     return [

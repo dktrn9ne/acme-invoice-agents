@@ -8,6 +8,7 @@ from typing import TypedDict
 from langgraph.graph import END, StateGraph
 from langgraph.types import interrupt
 
+from northline.critique import enforce_critique, rationale_contradicts
 from northline.db import utcnow
 from northline.desk import enqueue, mark_review, record_payment
 from northline.extract import parse_document
@@ -15,7 +16,7 @@ from northline.flags import tighter
 from northline.models import Invoice, Narrative, schema_errors
 from northline.policy import decide, explain
 from northline.reasoners import Reasoner
-from northline.validate import Ledger, validate_invoice
+from northline.validate import Ledger, arithmetic_facts, validate_invoice
 
 
 class DeskState(TypedDict, total=False):
@@ -34,6 +35,7 @@ class DeskState(TypedDict, total=False):
     flags: list[dict]
     policy_decision: str
     policy_rationale: str
+    arithmetic: dict
     draft_decision: str
     draft_rationale: str
     draft_concerns: list[str]
@@ -67,6 +69,7 @@ def build_graph(reasoner: Reasoner, ledger: Ledger, checkpointer):
                 + ("Schema accepted." if not errors else "Schema rejected: " + "; ".join(errors)),
                 errors=errors,
                 notes=list(invoice.extraction_notes),
+                disagreement=list(invoice.extraction_diff),
                 invoice_number=invoice.invoice_number,
             )
         )
@@ -96,6 +99,7 @@ def build_graph(reasoner: Reasoner, ledger: Ledger, checkpointer):
         payload = [flag.as_dict() for flag in flags]
         decision = decide(flags)
         rationale = explain(decision, payload)
+        facts = arithmetic_facts(invoice)
         events = _events(state)
         tools = ", ".join(sorted({item["tool"] for item in trace})) or "none"
         events.append(
@@ -103,9 +107,13 @@ def build_graph(reasoner: Reasoner, ledger: Ledger, checkpointer):
                 state,
                 "validation",
                 "validate",
-                f"Controls recommend {decision}. Tools used: {tools}.",
+                f"Controls recommend {decision}. Tools used: {tools}. "
+                f"Arithmetic: line sum {facts['line_sum']}, tax {facts['stated_tax'] or '0.00'}, "
+                f"expected total {facts['expected_total']}, stated total {facts['stated_total']}, "
+                f"total_matches {facts['total_matches']}.",
                 tools=trace,
                 flags=[flag["code"] for flag in payload],
+                arithmetic=facts,
                 invoice_number=invoice.invoice_number,
             )
         )
@@ -113,6 +121,7 @@ def build_graph(reasoner: Reasoner, ledger: Ledger, checkpointer):
             "flags": payload,
             "policy_decision": decision,
             "policy_rationale": rationale,
+            "arithmetic": facts,
             "events": events,
         }
 
@@ -144,7 +153,7 @@ def build_graph(reasoner: Reasoner, ledger: Ledger, checkpointer):
             rationale=state.get("draft_rationale") or "",
             concerns=list(state.get("draft_concerns") or []),
         )
-        review = reasoner.critique(dossier, narrative)
+        review = enforce_critique(dossier, narrative, reasoner.critique(dossier, narrative))
         attempts = int(state.get("critique_attempts") or 0) + 1
         events = _events(state)
         events.append(
@@ -165,7 +174,20 @@ def build_graph(reasoner: Reasoner, ledger: Ledger, checkpointer):
             "events": events,
         }
         if review.verdict != "revise" or attempts >= 2:
-            update["final_decision"] = tighter(state["draft_decision"], state["policy_decision"])
+            final = tighter(state["draft_decision"], state["policy_decision"])
+            if rationale_contradicts(state.get("draft_rationale") or "", state.get("arithmetic")):
+                final = state["policy_decision"]
+                events.append(
+                    _event(
+                        state,
+                        "critic",
+                        "critique",
+                        "Kept the policy decision. The draft still contradicts the computed arithmetic.",
+                        invoice_number=(state.get("invoice") or {}).get("invoice_number"),
+                    )
+                )
+            update["final_decision"] = final
+            update["events"] = events
         return update
 
     def settle(state: DeskState) -> dict:
@@ -307,6 +329,7 @@ def _dossier(state: DeskState) -> dict:
         "policy_rationale": state.get("policy_rationale"),
         "flags": state.get("flags") or [],
         "critique_notes": state.get("critique_notes") or "",
+        "arithmetic": state.get("arithmetic") or {},
         "invoice": {
             "invoice_number": invoice.get("invoice_number"),
             "vendor_name": invoice.get("vendor_name"),
