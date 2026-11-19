@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Desk{% endblock %}
+{% block body %}
+<section class="lede">
+  <p class="kicker">Payables control</p>
+  <h1>Money moves when the desk is <em>sure.</em></h1>
+  <p class="sub">Every invoice is read, checked against the item master, argued by a critic, and only then paid. Holds wait here for a person.</p>
+</section>
+
+<section class="stats" aria-label="Desk totals">
+  <article class="stat paid">
+    <span>Paid</span>
+    <strong>{{ paid | money }}</strong>
+  </article>
+  <article class="stat blocked">
+    <span>Blocked</span>
+    <strong>{{ blocked | money }}</strong>
+  </article>
+  <article class="stat waiting">
+    <span>In review</span>
+    <strong>{{ waiting | money }}</strong>
+  </article>
+  <article class="stat">
+    <span>Control hits</span>
+    <strong>{{ hits }}</strong>
+  </article>
+</section>
+<p class="hint" style="margin-top:12px">Document totals, not unique invoices. A second copy of a number that was already paid is counted again, because that attempt was stopped.</p>
+
+<hr class="rule">
+
+<div class="layout">
+  <section class="panel">
+    <h2>Latest decisions</h2>
+    <p class="hint">One row per document. A second copy of a paid number is blocked.</p>
+    {% if runs %}
+    <table>
+      <thead>
+        <tr>
+          <th>Invoice</th>
+          <th>Vendor</th>
+          <th class="num">Total</th>
+          <th>Decision</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in runs %}
+        <tr>
+          <td><a href="/runs/{{ run.run_id }}">{{ run.invoice_number or run.source_name }}</a></td>
+          <td>{{ run.vendor or "—" }}</td>
+          <td class="num">{{ run.total | money }}</td>
+          <td><span class="pill {{ run.decision }}"><i></i>{{ run.decision | decision }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">Nothing has been through the desk. <a href="/invoices">Run the corpus.</a></p>
+    {% endif %}
+  </section>
+  <aside>
+    <h2>How a document moves</h2>
+    <div class="pipeline">
+      <div class="pipe"><div class="idx">1</div><div class="copy"><strong>Ingestion</strong><span>Format-aware read. Messy text can go to Grok, then a schema check loops.</span></div></div>
+      <div class="pipe"><div class="idx">2</div><div class="copy"><strong>Validation</strong><span>Stock, price, vendor, arithmetic, and duplicates. Tools, not guesses.</span></div></div>
+      <div class="pipe"><div class="idx">3</div><div class="copy"><strong>VP draft</strong><span>A note on the packet. Above $10,000 the threshold has to be named.</span></div></div>
+      <div class="pipe"><div class="idx">4</div><div class="copy"><strong>Critic</strong><span>A second pass. It can hold or reject. It cannot loosen a block.</span></div></div>
+      <div class="pipe"><div class="idx">5</div><div class="copy"><strong>Settlement</strong><span>Pay, reject, or leave it in the queue for a person.</span></div></div>
+    </div>
+  </aside>
+</div>
+{% endblock %}

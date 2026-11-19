@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}{{ invoice.invoice_number or run.source_name }}{% endblock %}
+{% block body %}
+<section class="mast">
+  <div>
+    <p class="kicker">{{ run.source_name }} · {{ run.mode }}</p>
+    <h1>{{ invoice.invoice_number or "Unread" }}</h1>
+    <p class="meta">{{ invoice.vendor_name or "No vendor" }} · due {{ invoice.due_date or invoice.due_date_raw or "—" }} · ran {{ run.created_at[:16] | replace("T", " ") }} UTC</p>
+  </div>
+  <div>
+    <p class="amount">{{ invoice.total | money }} <span style="font-size:0.4em">{{ invoice.currency or "" }}</span></p>
+    <p><span class="pill {{ run.decision }}"><i></i>{{ run.decision | decision }}</span></p>
+  </div>
+</section>
+
+<ol class="timeline">
+  {% for event in events %}
+  <li class="step" data-step>
+    <div class="who">{{ event.agent }}</div>
+    <div>
+      <strong>{{ event.stage | stage }}</strong>
+      <p>{{ event.message }}</p>
+    </div>
+  </li>
+  {% endfor %}
+</ol>
+
+<div class="split">
+  <section>
+    <p class="eyebrow" style="color:var(--ink-soft)">Source</p>
+    <pre class="source">{{ source or "The original file is no longer on disk." }}</pre>
+  </section>
+  <section class="flags">
+    <p class="eyebrow" style="color:var(--ink-soft)">Flags</p>
+    {% if flags %}
+      {% for flag in flags %}
+      <article class="flag {{ flag.severity }}">
+        <b>{{ flag.severity }} · {{ flag.code }}</b>
+        <p>{{ flag.message }}</p>
+      </article>
+      {% endfor %}
+    {% else %}
+      <article class="flag info"><b>clear</b><p>No control fired. The desk paid the stated total.</p></article>
+    {% endif %}
+    {% if payment.confirmation %}
+    <article class="flag info"><b>payment</b><p>{{ payment.confirmation }} · {{ payment.amount | money }} to {{ payment.vendor }}</p></article>
+    {% endif %}
+  </section>
+</div>
+
+<section class="lines card">
+  <h2>Lines</h2>
+  {% if invoice.lines %}
+  <table>
+    <thead>
+      <tr><th>Item</th><th>SKU</th><th class="num">Qty</th><th class="num">Price</th></tr>
+    </thead>
+    <tbody>
+      {% for line in invoice.lines %}
+      <tr>
+        <td>{{ line.raw_name }}{% if line.note %} <span class="meta">{{ line.note }}</span>{% endif %}</td>
+        <td>{{ line.sku or "—" }}</td>
+        <td class="num">{{ line.quantity }}</td>
+        <td class="num">{{ line.unit_price | money }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No lines were parsed.</p>
+  {% endif %}
+  {% if rationale %}
+  <p class="hint" style="margin-top:18px">{{ rationale }}</p>
+  {% endif %}
+</section>
+{% endblock %}
+{% block script %}
+<script>
+  const steps = document.querySelectorAll("[data-step]");
+  steps.forEach((step, index) => {
+    setTimeout(() => step.classList.add("lit"), 180 + index * 240);
+  });
+</script>
+{% endblock %}
