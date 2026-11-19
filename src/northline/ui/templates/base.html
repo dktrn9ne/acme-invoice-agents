@@ -9,25 +9,26 @@
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
-  <header class="topbar">
-    <div class="status">Acme payables · local desk · money moves only after the controls</div>
+  <header class="masthead frame">
+    <div class="mast-top">
+      <p class="vol">Local desk</p>
+      <a class="wordmark" href="/">Northline</a>
+      <p class="issue">Acme Corp // Accounts payable</p>
+    </div>
     <nav class="nav" aria-label="Primary">
-      <a class="brand" href="/"><span class="mark" aria-hidden="true">N</span> Northline</a>
-      <div class="links">
-        <a href="/" {% if page == "desk" %}aria-current="page"{% endif %}>Desk</a>
-        <a href="/invoices" {% if page == "invoices" %}aria-current="page"{% endif %}>Invoices</a>
-        <a href="/review" {% if page == "review" %}aria-current="page"{% endif %}>Queue{% if pending %}<em>{{ pending }}</em>{% endif %}</a>
-        <a href="/audit" {% if page == "audit" %}aria-current="page"{% endif %}>Audit</a>
-      </div>
-      <a class="nav-cta" href="/invoices">Run an invoice</a>
+      <a href="/" {% if page == "desk" %}aria-current="page"{% endif %}>Desk</a>
+      <a href="/invoices" {% if page == "invoices" %}aria-current="page"{% endif %}>Invoices</a>
+      <a href="/review" {% if page == "review" %}aria-current="page"{% endif %}>Queue{% if pending %}<em>{{ "%02d"|format(pending) }}</em>{% endif %}</a>
+      <a href="/audit" {% if page == "audit" %}aria-current="page"{% endif %}>Audit</a>
+      <a href="/invoices">Run</a>
     </nav>
   </header>
-  <main id="main">
+  <main id="main" class="frame">
     {% block body %}{% endblock %}
   </main>
   <footer class="colophon">
-    <span>Controls are code. Grok writes the note. The bank is a mock.</span>
-    <span>Fixtures from galatiq-ai/galatiq-case-invoices.</span>
+    <span>Controls are code. Grok writes the note.</span>
+    <span>Acme accounts payable · local only</span>
   </footer>
   {% block script %}{% endblock %}
 </body>

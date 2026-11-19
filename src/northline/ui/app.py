@@ -17,8 +17,10 @@ from northline.config import ROOT, resolve_settings
 from northline.db import connect, ensure_schema
 from northline.desk import resolve_review
 from northline.extract import read_pdf, read_text
+from northline.flags import flag_label
 from northline.runner import run_path
 from northline.seed import seed
+from northline.ui.present import format_local, humanize_event
 
 HERE = Path(__file__).resolve().parent
 TEMPLATES = Jinja2Templates(directory=str(HERE / "templates"))
@@ -30,6 +32,15 @@ def _token_total(calls: list[dict], key: str) -> int | None:
     if not values:
         return None
     return int(sum(values))
+
+
+def present_events(events: list[dict]) -> list[dict]:
+    shown = []
+    for event in events:
+        item = dict(event)
+        item["display"] = humanize_event(event)
+        shown.append(item)
+    return shown
 
 
 def format_money(value: object) -> str:
@@ -62,6 +73,8 @@ def stage_label(value: object) -> str:
 TEMPLATES.env.filters["money"] = format_money
 TEMPLATES.env.filters["decision"] = decision_label
 TEMPLATES.env.filters["stage"] = stage_label
+TEMPLATES.env.filters["flag_label"] = flag_label
+TEMPLATES.env.filters["localtime"] = format_local
 
 
 @contextmanager
@@ -159,7 +172,7 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
                 run=run,
                 invoice=invoice,
                 flags=result.get("flags") or [],
-                events=result.get("events") or [],
+                events=present_events(result.get("events") or []),
                 payment=result.get("payment") or {},
                 rationale=result.get("draft_rationale") or result.get("policy_rationale") or "",
                 source=read_source(source_path),
