@@ -26,6 +26,18 @@ _CLEAN = re.compile(
     r"sums? (?:is|are) correct",
     re.IGNORECASE,
 )
+# Common ways to name the VP line. "$10k" and "($10k+)" counted on the 18 Nov
+# live run and used to fail this check.
+_THRESHOLD = re.compile(
+    r"(?:\$\s*10\s*,\s*000|\$\s*10\s*k\b|\$\s*10000\b|"
+    r"\b10\s*,\s*000\b|\b10000\b|\b10\s*k\b|\bten\s+thousand\b)",
+    re.IGNORECASE,
+)
+
+
+def names_high_value_threshold(rationale: str) -> bool:
+    """True when the note names the $10,000 scrutiny line in a common form."""
+    return bool(rationale and _THRESHOLD.search(rationale))
 
 
 def rationale_contradicts(rationale: str, arithmetic: dict | None) -> str | None:
@@ -84,7 +96,7 @@ def enforce_critique(dossier: dict, narrative: Narrative, model: Critique) -> Cr
             recommended_decision=policy if policy in DECISION_RANK else narrative.decision,
         )
     high = any(item.get("code") == "high_value" for item in dossier.get("flags") or [])
-    if high and "10,000" not in narrative.rationale and "10000" not in narrative.rationale:
+    if high and not names_high_value_threshold(narrative.rationale):
         return Critique(
             verdict="revise",
             notes="High-value invoice and the draft never mentions the $10,000 threshold.",

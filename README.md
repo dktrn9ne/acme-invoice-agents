@@ -140,14 +140,16 @@ The visual system is a paper-and-ink payables desk: Fraunces for the headlines, 
 
 Measured offline on 19 Nov 2026. No API key. No network.
 
-| | Documents | Decision accuracy | Flag precision | Flag recall | Flag F1 | Extraction | Latency |
+| | Documents | Decision accuracy | Flag precision | Flag recall | Flag F1 | Extraction | Latency and tokens |
 | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
 | **Offline** | 20 | **20/20** | **100%** | **100%** | **100%** | invoice number, vendor, and total match | local, no model |
-| **Live, before the arithmetic fix** | 20 | **19/20** | **100%** | **100%** | **100%** | ok | mean 22.6s, max 65s on `invoice_1013.json` |
+| **Live, branch `553c2d0`** | 20 | **20/20** | **100%** | **100%** | **100%** | ok | mean 20.91s, max 54.33s on `invoice_1015.csv`. 57,632 in / 27,000 out (84,632 total) across 56 calls |
 
-The live row was measured on **18 Nov 2026**, model **grok-4.3**, `ChatXAI`, on the branch as it was before this fix. It has not been re-measured since. The one miss was `invoice_1004.json`: the VP draft said the $1,890 total did not match 3×250 + 2×500 = 1,750 and forgot the 8% tax ($140). The model critic accepted that, because the draft was stricter than policy and the old critic only revised looser drafts. The desk now treats the computed arithmetic as the only money facts, and the critic revises a rationale that contradicts them. Expect a re-run before treating 20/20 live as measured.
+Live was measured **18 Nov 2026, 7:43–7:50 PM CT**, model **grok-4.3**, `ChatXAI`, on commit `553c2d0`. Pytest on that box was 30 passed, and offline was 20/20. An earlier canary the same day, before the arithmetic grounding, was **19/20** (it missed `invoice_1004.json` by forgetting the 8% tax). That run is superseded.
 
-On that same run, `invoice_1012.pdf` was a case where Grok's extraction disagreed with the rules reader. The `.txt` twin agreed. The decision and the flags still matched, because the rules read is what the controls use. The disagreement is now a field-level diff in the JSONL audit event and on the invoice page, not a one-line note.
+On `553c2d0`, INV-1004 was paid from a correct VP draft on attempt 1. The arithmetic-contradiction revise did not fire. The "$10,000 must be named" rule did: `invoice_1007.csv` revised once (`>$10k` to `$10,000`) and was accepted on attempt 2. `invoice_1013.json` and `invoice_1013.pdf` each revised twice, because `$10k` and `($10k+)` did not satisfy a matcher that only looked for `10,000` or `10000`, and then settled rejected, which is the right decision. That double revise was observed before the matcher accepted `$10k`, `10K`, `$10,000`, `10000`, and "ten thousand".
+
+`invoice_1012.pdf` and `invoice_1012.txt` both produced one field diff: vendor `QuickShip Distributers` versus `QuickShip Distributers (formerly FastShip Ltd.)`. The rules read was kept and the decision did not change. The parenthetical is the same fact as the `vendor_renamed` flag, so the comparison now drops a trailing "formerly …" suffix instead of calling it a different payee. A real vendor change still shows up in the diff.
 
 Live mode calls Grok for text and PDF extraction and for the VP note and the critic. JSON, CSV, and XML stay on the rules reader, because asking a model to retype a structured file is how totals get invented. If Grok errors, times out, or returns a draft that fails the schema twice, the rules read is what gets paid against. Each model call logs `input_tokens`, `output_tokens`, `total_tokens`, and its own latency. `eval` prints per-invoice latency and tokens.
 
@@ -202,7 +204,7 @@ A missing invoice number or an empty line list is a schema failure and is retrie
 
 **$10,000 is scrutiny, not a ban.**
 
-A synthetic invoice for the full on-hand quantity of every real SKU totals $12,500, has no other flag, and is paid. The VP note has to name the threshold or the critic sends it back. The sample happens to contain no clean invoice over $10,000, so this is covered by a unit test rather than the golden file.
+A synthetic invoice for the full on-hand quantity of every real SKU totals $12,500, has no other flag, and is paid. The VP note has to name the threshold or the critic sends it back. `$10k`, `10K`, `$10,000`, `10000`, and "ten thousand" all count. The sample has no clean invoice over $10,000, so the pay path is a unit test. On the live run the rule did fire, on invoices that were rejected for other reasons.
 
 **Humans get a queue, and the graph can also pause.**
 
@@ -268,14 +270,14 @@ The fixtures and `data/generate_pdfs.py` are copied from [galatiq-ai/galatiq-cas
 
 An interviewer should ask about these. They are real.
 
-- Which loops actually ran on the 18 Nov live corpus, and which are only covered by tests:
+- Which loops ran on the 18 Nov 7:43 PM CT live run (`553c2d0`, grok-4.3), and which are only covered by tests:
 
-  | Loop | Live, 18 Nov, grok-4.3 | Where it is proven |
+  | Loop | That live run | Where it is proven |
   | --- | --- | --- |
   | Extraction self-correction (schema retry) | Did not fire. Structured files skip Grok. Text and PDF parses were usable. | `test_extraction_self_corrects_on_schema_failure` |
   | Critic revises a draft looser than policy | Did not fire. Grok did not try to pay a blocked invoice. | Scripted test, including a critic that rubber-stamps the loose draft |
-  | Critic revises a rationale that contradicts the computed arithmetic | This is the INV-1004 miss. The old critic accepted it. The new rule is not yet re-measured live. | Scripted test that replays the false "1890 vs 1750" claim |
-  | High-value note must name $10,000 | Not in the corpus. No clean invoice is over $10,000. | Unit test with a synthetic $12,500 order |
+  | Critic revises a rationale that contradicts the computed arithmetic | Did not fire. INV-1004's grounded draft was right on attempt 1 and was paid. | Scripted replay of the superseded 19/20 canary, where the draft forgot the 8% tax |
+  | High-value note must name the $10,000 line | Fired. `invoice_1007.csv` revised once (`>$10k` became `$10,000`) and was accepted on attempt 2. Both INV-1013 files revised twice, because `$10k` / `($10k+)` missed the old matcher, then stayed rejected. | Unit test for `$10k`, `10K`, `$10,000`, `10000`, and "ten thousand". The 1013 double revise was before that matcher change. Also a synthetic $12,500 order that is paid. |
 
   The offline narrator agrees with the policy, so on `make eval` the critic accepts on the first pass. That is expected. It is not evidence the revise loop ran.
 - When Grok and the rules reader disagree, the rules reader wins. A better parser bug would be paid. The audit event and the invoice page now carry a field-level diff (rules value vs Grok value). The diff does not, by itself, stop the payment.

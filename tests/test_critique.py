@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from northline.critique import rationale_contradicts
+from northline.critique import enforce_critique, names_high_value_threshold, rationale_contradicts
+from northline.models import Critique, Narrative
 from northline.eval import decision_exit
 from northline.extract import parse_document
 from northline.validate import arithmetic_facts
@@ -31,6 +32,32 @@ def test_a_real_mismatch_is_not_called_a_contradiction():
     assert facts["total_matches"] is False
     assert rationale_contradicts("The printed totals do not match the lines.", facts) is None
     assert rationale_contradicts("The totals match and the arithmetic is clean.", facts) is not None
+
+
+def test_high_value_threshold_accepts_common_forms():
+    accepted = ["$10k", "10K", "$10,000", "10000", "ten thousand", "10,000", "$10k+", "($10k+)", "above >$10k"]
+    for text in accepted:
+        assert names_high_value_threshold(text), text
+    assert not names_high_value_threshold("the total is $9,975")
+    assert not names_high_value_threshold("about 1000 dollars")
+    dossier = {
+        "policy_decision": "rejected",
+        "flags": [{"code": "high_value", "severity": "info"}],
+        "arithmetic": {"total_matches": True, "tax_matches": True, "subtotal_matches_lines": True},
+    }
+    accept = Critique(verdict="accept", notes="ok", recommended_decision="rejected")
+    shorthand = enforce_critique(
+        dossier,
+        Narrative(decision="rejected", rationale="Over $10k. Do not pay.", concerns=[]),
+        accept,
+    )
+    assert shorthand.verdict == "accept"
+    missing = enforce_critique(
+        dossier,
+        Narrative(decision="rejected", rationale="This invoice is large.", concerns=[]),
+        accept,
+    )
+    assert missing.verdict == "revise"
 
 
 def test_live_exit_is_zero_unless_a_threshold_is_set():

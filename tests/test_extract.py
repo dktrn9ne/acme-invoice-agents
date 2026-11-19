@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from northline.extract import extraction_diff, fix_ocr, parse_date, parse_document
+from northline.extract import extraction_diff, fix_ocr, parse_date, parse_document, vendor_compare_key
 
 INVOICES = Path(__file__).resolve().parents[1] / "data" / "invoices"
 
@@ -81,6 +81,18 @@ def test_extraction_diff_names_the_fields_that_moved():
     assert total["rules"] == "1890.00"
     assert total["grok"] == "1.00"
     assert extraction_diff(rules, rules) == []
+
+
+def test_formerly_suffix_is_not_a_different_vendor():
+    rules = parse_document(INVOICES / "invoice_1012.txt")
+    assert rules.vendor_name == "QuickShip Distributers"
+    other = rules.model_copy(deep=True)
+    other.vendor_name = "QuickShip Distributers (formerly FastShip Ltd.)"
+    assert vendor_compare_key(rules.vendor_name) == vendor_compare_key(other.vendor_name)
+    assert extraction_diff(rules, other) == []
+    other.vendor_name = "Someone Else (formerly FastShip Ltd.)"
+    fields = {row["field"] for row in extraction_diff(rules, other)}
+    assert "vendor_name" in fields
 
 
 def test_xml_currency_and_json_revision():

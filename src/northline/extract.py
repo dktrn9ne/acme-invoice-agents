@@ -614,6 +614,20 @@ def draft_to_invoice(draft: InvoiceDraft, raw_text: str, source_path: str, sourc
     )
 
 
+_FORMERLY_SUFFIX = re.compile(r"(?:,|\s)\s*(?:\(\s*)?formerly\b.*$", re.IGNORECASE)
+
+
+def vendor_compare_key(name: str | None) -> str:
+    """Payee identity for a diff.
+
+    "(formerly FastShip Ltd.)" is the rename flag, not a second vendor.
+    The raw document still raises vendor_renamed. Case does not count.
+    """
+    text = (name or "").strip()
+    text = _FORMERLY_SUFFIX.sub("", text).strip(" ,")
+    return text.casefold()
+
+
 def _show(value: object) -> str:
     if value is None:
         return ""
@@ -652,7 +666,11 @@ def extraction_diff(rules: Invoice, other: Invoice) -> list[dict]:
     for field in fields:
         left = _show(getattr(rules, field))
         right = _show(getattr(other, field))
-        if left != right:
+        if field == "vendor_name":
+            changed = vendor_compare_key(left) != vendor_compare_key(right)
+        else:
+            changed = left != right
+        if changed:
             rows.append({"field": field, "rules": left, "grok": right})
     left_lines = _line_signature(rules)
     right_lines = _line_signature(other)
@@ -662,17 +680,7 @@ def extraction_diff(rules: Invoice, other: Invoice) -> list[dict]:
 
 
 def drafts_agree(left: Invoice, right: Invoice) -> bool:
-    if left.invoice_number != right.invoice_number:
-        return False
-    if (left.vendor_name or "").strip().lower() != (right.vendor_name or "").strip().lower():
-        return False
-    if left.total != right.total:
-        return False
-    left_lines = sorted((line.sku or line.raw_name, str(line.quantity), str(line.unit_price)) for line in left.lines)
-    right_lines = sorted(
-        (line.sku or line.raw_name, str(line.quantity), str(line.unit_price)) for line in right.lines
-    )
-    return left_lines == right_lines
+    return not extraction_diff(left, right)
 
 
 def peek_invoice_number(path: Path) -> str | None:
