@@ -40,4 +40,4 @@ def test_desk_runs_a_sample_and_a_person_can_release_a_hold(tmp_path):
     assert "$5,000.00" in again.text
     css = client.get("/static/app.css")
     assert css.status_code == 200
-    assert "Fraunces" in css.text
+    assert "Instrument Serif" in css.text

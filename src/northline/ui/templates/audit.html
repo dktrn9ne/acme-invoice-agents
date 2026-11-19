@@ -1,34 +1,31 @@
 {% extends "base.html" %}
 {% block title %}Audit{% endblock %}
 {% block body %}
-<section class="lede">
-  <p class="kicker">Ledger</p>
-  <h1>Who decided, and <em>why.</em></h1>
-  <p class="sub">Every agent writes a line. The payment row is the only place money is recorded as moved.</p>
-</section>
+<p class="kicker">Ledger</p>
+<h1>Who decided, and <em>why</em><span class="dot">.</span></h1>
+<p class="dek">Every agent writes a line. The payment row is the only place money is recorded as moved.</p>
 <nav class="filters" aria-label="Filter by agent">
   <a href="/audit" {% if not agent %}aria-current="true"{% endif %}>All</a>
   {% for name in agents %}
   <a href="/audit?agent={{ name }}" {% if agent == name %}aria-current="true"{% endif %}>{{ name }}</a>
   {% endfor %}
 </nav>
-<section class="panel">
-  <table>
-    <thead>
-      <tr><th>When</th><th>Agent</th><th>Invoice</th><th>What happened</th></tr>
-    </thead>
-    <tbody>
-      {% for event in events %}
-      <tr>
-        <td>{{ event.created_at[11:16] }}</td>
-        <td>{{ event.agent }}</td>
-        <td>{% if event.run_id %}<a href="/runs/{{ event.run_id }}">{{ event.invoice_number or "—" }}</a>{% else %}—{% endif %}</td>
-        <td>{{ event.message }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="4" class="empty">No events yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</section>
+<p class="section-label"><span>01 — Audit</span> The trail</p>
+<table>
+  <thead>
+    <tr><th>When</th><th>Agent</th><th>Invoice</th><th>What happened</th></tr>
+  </thead>
+  <tbody>
+    {% for event in events %}
+    <tr>
+      <td class="num" style="text-align:left">{{ event.created_at[11:16] }}</td>
+      <td><span class="tag info">{{ event.agent }}</span></td>
+      <td>{% if event.run_id %}<a href="/runs/{{ event.run_id }}">{{ event.invoice_number or "—" }}</a>{% else %}—{% endif %}</td>
+      <td>{{ event.message }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="empty">No events yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
 {% endblock %}

@@ -1,36 +1,33 @@
 {% extends "base.html" %}
 {% block title %}Invoices{% endblock %}
 {% block body %}
-<section class="lede">
-  <p class="kicker">Corpus</p>
-  <h1>Pick a document. <em>Watch the desk.</em></h1>
-  <p class="sub">The sample set is the Galatiq case, traps included. Offline runs with no key. Live asks Grok and falls back if the call fails.</p>
-</section>
-<hr class="rule">
-<div class="form-grid">
-  <form class="card" method="post" action="/invoices/run" enctype="multipart/form-data">
+<p class="kicker">Corpus</p>
+<h1>Pick a document. Watch the <em>desk</em><span class="dot">.</span></h1>
+<p class="dek">The sample set is the Galatiq case, traps included. Offline runs with no key. Live asks Grok and falls back if the call fails.</p>
+
+<div class="spread" style="margin-top:36px">
+  <form method="post" action="/invoices/run" enctype="multipart/form-data">
     {% if error %}<p class="banner">{{ error }}</p>{% endif %}
-    <h2>Run</h2>
-    <label for="sample">Sample invoice</label>
+    <p class="section-label"><span>01</span> Run</p>
+    <label class="field" for="sample">Sample invoice</label>
     <select id="sample" name="sample">
       <option value="">Choose from the case set</option>
       {% for name in samples %}
       <option value="{{ name }}">{{ name }}</option>
       {% endfor %}
     </select>
-    <p class="hint" style="margin-top:16px">Or bring your own text, PDF, CSV, JSON, or XML.</p>
-    <label class="file">
+    <label class="field">Or bring your own text, PDF, CSV, JSON, or XML.
       <input type="file" name="file" accept=".txt,.pdf,.json,.csv,.xml,text/plain,application/pdf">
     </label>
-    <p class="hint" style="margin-top:16px">Reasoner</p>
-    <div class="segment" role="radiogroup" aria-label="Reasoner">
+    <p class="field">Reasoner</p>
+    <div class="choice" role="radiogroup" aria-label="Reasoner">
       <label><input type="radio" name="mode" value="offline" checked><span>Offline</span></label>
       <label><input type="radio" name="mode" value="live"><span>Grok</span></label>
     </div>
-    <p style="margin-top:18px"><button class="copper" type="submit">Run the desk</button></p>
+    <button class="ink" type="submit">Run the desk</button>
   </form>
   <section>
-    <h2>Already seen</h2>
+    <p class="section-label"><span>02</span> Already seen</p>
     {% if runs %}
     <table>
       <thead><tr><th>File</th><th>Decision</th></tr></thead>
@@ -38,7 +35,7 @@
         {% for run in runs %}
         <tr>
           <td><a href="/runs/{{ run.run_id }}">{{ run.source_name }}</a></td>
-          <td><span class="pill {{ run.decision }}"><i></i>{{ run.decision | decision }}</span></td>
+          <td><span class="tag {{ run.decision }}">{{ run.decision | decision }}</span></td>
         </tr>
         {% endfor %}
       </tbody>

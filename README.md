@@ -132,7 +132,7 @@ Select a sample or upload a file. Each agent step lights up in order. Flags carr
 
 ![The audit log](docs/audit.png)
 
-The visual system is a paper-and-ink payables desk: Fraunces for the headlines, Outfit for the UI, one copper accent. Both fonts are vendored (SIL Open Font License) so the page does not depend on a CDN. The reference points were editorial finance sites on Land Book (Fruitful, Polar, Titan), the sticky pill navs on Navbar Gallery, and the single-accent SaaS templates on Framer (Asterly's sticky nav and type pairing, without the neon).
+The desk is set like [Parallel — Finance](https://www.framer.com/marketplace/templates/parallel-finance/): cream paper (`#EFEBE0`), Instrument Serif headlines with one italic word and a single red period, a ruled ticker for paid / blocked / held / risk caught, hairline ledger tables, and a numbered rail for the agent steps. Instrument Sans and DM Mono are vendored with it (SIL Open Font License) so the page does not depend on a CDN.
 
 ## Evaluation
 
